@@ -52,7 +52,7 @@ docker build -t orzbot .
 
 **Step 3: Initialize the config file**
 
-choose a place for the config files `<ABSOLUTE_PATH_TO_THE_CONFIGURATION_FOLDER>`, create a config file `config.js` and `nicks.json`
+choose a place for the config files `<ABSOLUTE_PATH_TO_THE_CONFIGURATION_FOLDER>`, create a config file `config.js` and `nicks.json` (*Notice: You must `chmod 777 nicks.json` for using the `/nick` command*)
 
 **Step 4: Run the Images**
 
