@@ -327,7 +327,76 @@ async function on_message(msg) {
 
     let ic = config.t2i.get(msg.chat.id)
 
-    if (msg.text && msg.text.slice(0, 1) == '/') {
+    // Message Filter
+    if (!enabled.has(msg.chat.id) || msg.date < inittime) {
+        console.log('ignoring mesage time filter' + msg.text)
+        return
+    }
+
+    if (config.irc_photo_forwarding_enabled && msg.photo) {
+        // Photos
+        var largest = {
+            file_size: 0
+        }
+        for (var i in msg.photo) {
+            var p = msg.photo[i]
+            if (p.file_size > largest.file_size) {
+                largest = p
+            }
+        }
+        return sendimg(ic, largest.file_id, msg, 'Img')
+    } else if (config.irc_sticker_forwarding_enabled && msg.sticker) {
+        // Stickers
+        return sendimg(ic, msg.sticker.file_id, msg, 'Sticker')
+    } else if (config.irc_photo_forwarding_enabled && msg.voice) {
+        // VoiceNote
+        sendimg(ic, msg.voice.file_id, msg, 'Voice')
+        return
+    } else if (config.irc_photo_forwarding_enabled && msg.video) {
+        // Video
+        sendimg(ic, msg.video.file_id, msg, 'Video')
+        return
+    } else if (config.irc_photo_forwarding_enabled && msg.document) {
+        // Document
+        return sendimg(ic, msg.document.file_id, msg,
+            util.format('File(%s)', msg.document.mime_type))
+    } else if (msg.new_chat_participant) {
+        // New Chat Participant from Telegram
+
+        let part = msg.new_chat_participants
+        if (config.irc_participant_enabled) {
+            let usernames = part.map(p => format_name(p.id, p.first_name, p.last_name)).join(', ')
+            let ircmesg = 'New user "' + usernames + '" joined Telegram group. Welcome!'
+            irc_c.say(ic, ircmesg)
+        }
+
+        if (config.irc_ensure_ascii_nickname) {
+            let non_asc_user = []
+            for (let ncp of part) {
+                if (!check_ascii_nickname(format_name(ncp.id, ncp.first_name, ncp.last_name))) {
+                    non_asc_user.push(ncp)
+                }
+            }
+
+            let nau_usernames = non_asc_user.map(p => p.username ? `@${p.username}` : `<a href="tg://user?id=${p.id}">${he.encode(format_name(p.id, p.first_name, p.last_name))}</a>`).join(', ')
+            let header = `Hello, ${nau_usernames}\n`
+            let message = 'Your current nickname is "' + username +
+                '", which contains non-ascii chars and it may be hard to input in some IRC clients.\n' +
+                'Please choose a suitable which easy to enter in most of cases.\n' +
+                'Use "/nick <nickname>" to set your nickname :-)'
+            return tg.sendMessage(msg.chat.id, header + message, {
+                parse_mode: 'HTML'
+            })
+        }
+
+    } else if (config.irc_participant_enabled && msg.left_chat_participant) {
+        // This is rarely called in big groups.
+
+        var part = msg.left_chat_participant
+        var username = format_name(part.id, part.first_name, part.last_name)
+        var ircmesg = 'User "' + username + '" left Telegram group. See you~'
+        irc_c.say(config.irc_channel, ircmesg)
+    } else if (msg.text && msg.text.slice(0, 1) == '/') {
         // Commands are as follows.
         // 2 times if is retarded. We can replace bot's username off the command.
         var command = msg.text.split(' ')
@@ -722,3 +791,35 @@ tg.once('ready', async () => {
         enabled.add(t)
     }
 })
+
+{
+    const rp = require('request-promise-native')
+    const auth = 'authkey'
+    const rgx = /^\[[A-Za-z0-9_]+\] <([0-9a-zA-Z_]+)> <ssoauth: ([0-9a-z]{32})>$/
+
+    irc_c.addListener('message#kedama', async (from, message) => {
+        if (from != 'kedamabot') return
+        const match_data = rgx.exec(message)
+        if (!match_data) return
+        const [name, token] = match_data.slice(1)
+        try {
+            const result = await rp({
+                url: 'https://kedama-sso.jsw3286.eu.org/binding/minecraft',
+                method: 'POST',
+                body: {
+                    name, token
+                },
+                json: true,
+                headers: {
+                    'X-Token': auth
+                }
+            })
+            if (result.ok) {
+                irc_c.say('#kedama', `${name}: SSO Authentication Completed.`)
+            }
+        } catch (e) {
+            // ignore
+        }
+    })
+
+}
